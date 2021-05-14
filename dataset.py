@@ -14,7 +14,7 @@ import torch.nn as nn
 from torch.utils.data import Dataset, DataLoader, Subset
 from torchvision import transforms
 from PIL import Image
-
+import random
 label_name = ["airplane", "automobile", "bird",
               "cat", "deer", "dog",
               "frog", "horse", "ship", "truck"]
@@ -25,13 +25,19 @@ for idx, name in enumerate(label_name):
     label_dict[name] = idx
 
 class Data(Dataset):
-    def __init__(self,im_list,trans=None,train=True):
+    def __init__(self,im_list,trans=None,train=True,epochs=300):
         super(Dataset,self).__init__()
         imgs=[]
         for im_item in im_list:
             im_label_name=im_item.split('/')[-2]
-            imgs.append([im_item,label_dict[im_label_name]])
-        self.imgs=imgs
+            imgs.append([label_dict[im_label_name],im_item])
+        #self.imgs=imgs
+        images=[]
+        for i in range(epochs):
+            random.shuffle(imgs)
+            images.extend(imgs)
+        del imgs
+        self.imgs=images
         self.trans=trans
         self.tran=transforms.Compose([transforms.ToTensor(),])
         self.train=train
@@ -40,10 +46,9 @@ class Data(Dataset):
         return len(self.imgs)
 
     def __getitem__(self,idx):
-        image,label=self.imgs[idx]
+        label,image=self.imgs[idx]
         image=Image.open(image)
         
-
         if self.train:
             view1=BYOLAugmentationsView1(image)
             view2=BYOLAugmentationsView2(image)

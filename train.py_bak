@@ -33,8 +33,6 @@ np.random.seed(122) # for yolov5-mosaic
 torch.manual_seed(120)  
 torch.cuda.manual_seed(120) 
 torch.cuda.manual_seed_all(120)
-#####
-batch=64
 
 ###########
 #init
@@ -56,12 +54,12 @@ transform = transforms.Compose([
                ])
 im_train_list=glob.glob("/home/liqian/data/cifar10/cifar-imgs/train/*/*.png")
 im_test_list=glob.glob("/home/liqian/data/cifar10/cifar-imgs/test/*/*.png")
-trainset = Data(im_train_list,train = True,trans=transform,epochs=300)
+trainset = Data(im_train_list,train = True,trans=transform)
 sampler=DistributedSampler(trainset,shuffle=True)
-trainloader = torch.utils.data.DataLoader(trainset,batch_size=batch,shuffle=False,num_workers=4, sampler=sampler)
+trainloader = torch.utils.data.DataLoader(trainset,batch_size=64,shuffle=False,num_workers=4, sampler=sampler)
 
-testset = Data(im_test_list,train=False,trans=transform,epochs=1)
-testloader = torch.utils.data.DataLoader(testset,batch_size=batch,shuffle=True,num_workers=4)
+testset = Data(im_test_list,train=False,trans=transform)
+testloader = torch.utils.data.DataLoader(testset,batch_size=64,shuffle=True,num_workers=4)
 test_len=len(testloader)
 classes = ('airplane','automobile','bird','cat','deer','dog','frog','horse','ship','truck')
 
@@ -76,7 +74,6 @@ classes = ('airplane','automobile','bird','cat','deer','dog','frog','horse','shi
 
 model=BYOL(mode="train+val")
 #weigth_init(model)
-############model.load_state_dict(torch.load(model)["model"])
 model.to(device)
 
 ###optimizer
@@ -91,8 +88,8 @@ if torch.cuda.device_count() > 1:
                                                       output_device=local_rank)
 ####batch size:64 iter:780
 
-logs=open("logs/fine_log"+str(batch)+".txt",'a+')
-for epoch in range(1):
+logs=open("logs/train_log"+str(64)+".txt",'a+')
+for epoch in range(300):
     #train
     iter_loss=0.0
     iter_top1=0.0
@@ -104,36 +101,34 @@ for epoch in range(1):
         optimizer.zero_grad()
         loss,top1,top5=model(inputs1,inputs2,labels)
         loss.backward()
-        #cls_loss.backward()
         optimizer.step()
-        model.update_target()
         iter_loss+=loss.item()
         iter_top1+=top1.item()
         iter_top5+=top5.item()
         if i%10==0:
-            print('[%5d iter] || loss: %.3f | top1:%.3f | top5:%.3f'%(i+1,iter_loss/10.,iter_top1/10.,iter_top5/10.))
-            logs.write(str(i+1)+","+str(iter_loss/10.)+","+str(iter_top1/10.)+","+str(iter_top5/10.)+"\n")
+            print('[%d epoch, %5d iter] || loss: %.3f | top1:%.3f | top5:%.3f'%(epoch+1,i+1,iter_loss/10.,iter_top1/10.,iter_top5/10.))
+            logs.write(str(epoch)+","+str(i+1)+","+str(iter_loss/10.)+","+str(iter_top1/10.)+","+str(iter_top5/10.)+"\n")
             iter_loss=0.0
             iter_top1=0.0
             iter_top5=0.0
-            if i%39000==0:
-                torch.save({'model':model.state_dict(),'optimizer':optimizer.state_dict(),'epoch':i%39000},"models/"+str(batch)+"/model_classifier_"+str(i)+".pth")
-        #validate
-        if i%7800==0:
-            iter_top1=0.0
-            iter_top5=0.0
-            for i,data in enumerate(testloader,0):
-                inputs,labels=data
-                with torch.no_grad():
-                    inputs, labels = Variable(inputs.cuda()), Variable(labels.cuda())
-                    _,top1,top5=model(inputs,None,labels)
-                    iter_top1+=top1
-                    iter_top5+=top5
-            print('top1:%.3f | top5:%.3f'%(iter_top1/test_len,iter_top5/test_len))
-logs.close()
 
+    #validate
+    if epoch%20==0:
+        iter_loss=0.0
+        iter_top1=0.0
+        iter_top5=0.0
+        for i,data in enumerate(testloader,0):
+            inputs,labels=data
+            with torch.no_grad():
+                inputs, labels = Variable(inputs.cuda()), Variable(labels.cuda())
+                _,top1,top5=model(inputs,None,labels)
+                #iter_loss+=loss.item()
+                iter_top1+=top1
+                iter_top5+=top5
+        print('top1:%.3f | top5:%.3f'%(iter_top1/test_len,iter_top5/test_len))
+logs.close()
 #testing    
-torch.save({'model':model.state_dict(),'optimizer':optimizer.state_dict(),'epoch':300},"models/"+str(batch)+"/model_classifier_final.pth")
+iter_loss=0.0
 iter_top1=0.0
 iter_top5=0.0
 for i,data in enumerate(testloader,0):
@@ -141,9 +136,8 @@ for i,data in enumerate(testloader,0):
     with torch.no_grad():
         inputs, labels = Variable(inputs.cuda()), Variable(labels.cuda())
         _,top1,top5=model(inputs,None,labels)
+        #iter_loss+=loss.item()
         iter_top1+=top1
         iter_top5+=top5
 print('top1:%.3f | top5:%.3f'%(iter_top1/test_len,iter_top5/test_len))
-
-#torch.save({'model':model.state_dict(),'optimizer':optimizer.state_dict(),'epoch':300},"models/"+str(batch)+"/model_final.pth")
                

@@ -86,29 +86,41 @@ class BYOL(nn.Module):
         ##model:pre-train,fine-tune,test
         super(BYOL,self).__init__()       
 
-        model=models.vgg16(pretrained=True)
+        model=models.vgg16(pretrained=False)
         print(model)
 
         model.classifier=MLP(input_size=25088,hidden_size=projector_hidden_size,output_size=projector_output_size)
-        model.fc=nn.Sequential()
-        self.online_backbone=model#nn.Sequential(*list(model.modules())[:-2])
+        model.classifier=nn.Sequential()
+        self.online_backbone=model#nn.Sequential(*list(model.modules())[:-1])
         #self.online_backbone.fc=nn.Sequential()
         #for param in self.online_backbone.parameters():
         #    param.requires_grad = False
-        #self.online_projector=MLP(input_size=25088,hidden_size=projector_hidden_size,output_size=projector_output_size)
+        self.online_projector=MLP(input_size=25088,hidden_size=projector_hidden_size,output_size=projector_output_size)
         self.online_predictor=MLP(input_size=projector_output_size,hidden_size=predictor_hidden_size,output_size=projector_output_size)
 
         self.target_backbone = None
         self.target_projector=None
         self.mode=mode
-        
-        self.classifier=nn.Linear(projector_output_size,num_classes,bias=True)
-        self.cls_loss=nn.CrossEntropyLoss()
+        self.classifier=None
+        if mode not in "pre-train":
+            self.classifier=nn.Linear(25088,num_classes,bias=True)
+            self.cls_loss=nn.CrossEntropyLoss()
 
         self.ema=EMA(moving_average_decay)
         self.use_momentum = use_momentum
-       
-
+        
+        for m in self.online_projector.modules():
+            if isinstance(m,nn.Conv2d):
+                nn.init.kaiming_normal_(m.weight,mode='fan_out',nonlinearity='relu')
+            elif isinstance(m,nn.Linear):
+                init.normal_(m.weight, std=1e-3)
+            elif isinstance(m,nn.BatchNorm2d):
+                init.constant(m.weight, 1)
+                init.constant(m.bias, 0)  
+            elif isinstance(m,nn.BatchNorm1d):
+                init.constant(m.weight, 1)
+                init.constant(m.bias, 0)         
+   
         for m in self.online_predictor.modules():
             if isinstance(m,nn.Conv2d):
                 nn.init.kaiming_normal_(m.weight,mode='fan_out',nonlinearity='relu')
@@ -120,29 +132,37 @@ class BYOL(nn.Module):
             elif isinstance(m,nn.BatchNorm1d):
                 init.constant(m.weight, 1)
                 init.constant(m.bias, 0)
-        for m in self.classifier.modules():
-            if isinstance(m,nn.Conv2d):
-                nn.init.kaiming_normal_(m.weight,mode='fan_out',nonlinearity='relu')
-            elif isinstance(m,nn.Linear): 
-                init.normal_(m.weight, std=1e-3)
-            elif isinstance(m,nn.BatchNorm2d):
-                init.constant(m.weight, 1)
-                init.constant(m.bias, 0)  
-            elif isinstance(m,nn.BatchNorm1d):
-                init.constant(m.weight, 1)
-                init.constant(m.bias, 0)
+        if self.classifier is not None:
+            for m in self.classifier.modules():
+                if isinstance(m,nn.Conv2d):
+                    nn.init.kaiming_normal_(m.weight,mode='fan_out',nonlinearity='relu')
+                elif isinstance(m,nn.Linear): 
+                    init.normal_(m.weight, std=1e-3)
+                elif isinstance(m,nn.BatchNorm2d):
+                    init.constant(m.weight, 1)
+                    init.constant(m.bias, 0)  
+                elif isinstance(m,nn.BatchNorm1d):
+                    init.constant(m.weight, 1)
+                    init.constant(m.bias, 0)
 
     def update_target(self):
         assert self.target_backbone is not None,'target backbone has not been created yet'
+        assert self.target_projector is not None,"target projector has not been created yet!"
         update_moving_average(self.ema,self.target_backbone,self.online_backbone)
+        update_moving_average(self.ema,self.target_projector,self.online_projector)
 
     @singleton('target_backbone')
     def _get_target_backbone(self):
         target_backbone = copy.deepcopy(self.online_backbone)
         for p in target_backbone.parameters():
-                p.requires_grad=False
+            p.requires_grad=False
         return target_backbone 
-
+    @singleton('target_projector')
+    def _get_target_projector(self):
+        target_projector=copy.deepcopy(self.online_projector)
+        for p in target_projector.parameters():
+            p.requires_grad=False
+        return target_projector
 
     def freeze(self,checkpoint):
         if self.mode is not "pre-train":            
@@ -168,34 +188,41 @@ class BYOL(nn.Module):
             
         ##get view1
         feature_view1=self.online_backbone(image_one)
-        predictor_view1=self.online_predictor(feature_view1)
-        if image_two is None:
-            logits_view1=nn.Softmax(dim=1)(self.classifier(predictor_view1))
+        projector_view1=self.online_projector(feature_view1)
+        predictor_view1=self.online_predictor(projector_view1)
+        if self.mode not in "pre-train" and image_two is None:
+            logits_view1=nn.Softmax(dim=1)(self.classifier(feature_view1))
             top1_acc,top5_acc=accuracy(logits_view1.data,labels, topk=(1, 5))
             return None,top1_acc.data.mean(),top5_acc.data.mean() 
         ## get view2
         feature_view2=self.online_backbone(image_two)
-        feature_view2=feature_view2.view(image_two.size(0),-1)
-        predictor_view2=self.online_predictor(feature_view2)
+        projector_view2=self.online_projector(feature_view2)
+        #feature_view2=feature_view2.view(image_two.size(0),-1)
+        predictor_view2=self.online_predictor(projector_view2)
 
         with torch.no_grad():
             if self.use_momentum:
                 target_backbone = self._get_target_backbone()
+                target_projector=self._get_target_projector()
             else:
                 target_backbone=self.online_backbone
+                target_projector=self.online_projector
 
             target_f1=target_backbone(image_one)
+            target_f1=target_projector(target_f1)
             target_f2=target_backbone(image_two)
+            target_f2=target_projector(target_f2)
             target_f1.detach_()
             target_f2.detach_()
 
-        loss_one=loss_fn(predictor_view1,target_f2).mean()
-        loss_two=loss_fn(predictor_view2,target_f1).mean()
+        loss_one=loss_fn(predictor_view1,target_f2.detach()).mean()
+        loss_two=loss_fn(predictor_view2,target_f1.detach()).mean()
         loss=loss_one+loss_two
-        self.update_target()
-        if self.mode is not "pre-train":
-            predictor_view1.detach_()
-            logit_view1=self.classifier(predictor_view1)
+        #self.update_target()
+        if self.mode not in "pre-train":
+            #feature_view1.detach_()
+            #print(feature_view1.shape)
+            logit_view1=self.classifier(feature_view1)
             classifier_loss=self.cls_loss(logit_view1,labels)
             loss+=classifier_loss.mean()
             logit_view1=nn.Softmax(dim=1)(logit_view1)#.cpu().detach().numpy().argsort(axis=1)[:,::-1]

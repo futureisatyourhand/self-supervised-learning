@@ -4,7 +4,7 @@
 # @Author  : Qian Li
 # @Email   : 1844857573@qq.com
 # @File    : train.py
-# Description :train and eval for self-supervised learning,such as CIFAR10,CIFAR100,STL and etc.
+# Description :pre-train for self-supervised learning (BYOL),such as CIFAR10,CIFAR100,STL and etc.
 import random
 import glob
 from network import BYOL
@@ -74,9 +74,8 @@ classes = ('airplane','automobile','bird','cat','deer','dog','frog','horse','shi
 #torch.cuda.set_device(local_rank)
 #device = torch.device("cuda", local_rank)
 
-model=BYOL(mode="train+val")
+model=BYOL(mode="pre-train")
 #weigth_init(model)
-############model.load_state_dict(torch.load(model)["model"])
 model.to(device)
 
 ###optimizer
@@ -91,12 +90,10 @@ if torch.cuda.device_count() > 1:
                                                       output_device=local_rank)
 ####batch size:64 iter:780
 
-logs=open("logs/fine_log"+str(batch)+".txt",'a+')
+logs=open("logs/pretrain_log"+str(batch)+".txt",'a+')
 for epoch in range(1):
     #train
     iter_loss=0.0
-    iter_top1=0.0
-    iter_top5=0.0
     sampler.set_epoch(epoch)    
     for i,data in enumerate(trainloader,0):
         inputs1,inputs2,labels=data
@@ -104,46 +101,17 @@ for epoch in range(1):
         optimizer.zero_grad()
         loss,top1,top5=model(inputs1,inputs2,labels)
         loss.backward()
-        #cls_loss.backward()
         optimizer.step()
         model.update_target()
         iter_loss+=loss.item()
-        iter_top1+=top1.item()
-        iter_top5+=top5.item()
         if i%10==0:
-            print('[%5d iter] || loss: %.3f | top1:%.3f | top5:%.3f'%(i+1,iter_loss/10.,iter_top1/10.,iter_top5/10.))
-            logs.write(str(i+1)+","+str(iter_loss/10.)+","+str(iter_top1/10.)+","+str(iter_top5/10.)+"\n")
+            print('[%5d iter] || loss: %.3f '%(i+1,iter_loss/10.))
+            logs.write(str(i+1)+","+str(iter_loss/10.)+"\n")
             iter_loss=0.0
-            iter_top1=0.0
-            iter_top5=0.0
             if i%39000==0:
-                torch.save({'model':model.state_dict(),'optimizer':optimizer.state_dict(),'epoch':i%39000},"models/"+str(batch)+"/model_classifier_"+str(i)+".pth")
-        #validate
-        if i%7800==0:
-            iter_top1=0.0
-            iter_top5=0.0
-            for i,data in enumerate(testloader,0):
-                inputs,labels=data
-                with torch.no_grad():
-                    inputs, labels = Variable(inputs.cuda()), Variable(labels.cuda())
-                    _,top1,top5=model(inputs,None,labels)
-                    iter_top1+=top1
-                    iter_top5+=top5
-            print('top1:%.3f | top5:%.3f'%(iter_top1/test_len,iter_top5/test_len))
+                torch.save({'model':model.state_dict(),'optimizer':optimizer.state_dict(),'epoch':i%39000},"models/"+str(batch)+"/model_"+str(i)+".pth")
 logs.close()
-
 #testing    
-torch.save({'model':model.state_dict(),'optimizer':optimizer.state_dict(),'epoch':300},"models/"+str(batch)+"/model_classifier_final.pth")
-iter_top1=0.0
-iter_top5=0.0
-for i,data in enumerate(testloader,0):
-    inputs,labels=data
-    with torch.no_grad():
-        inputs, labels = Variable(inputs.cuda()), Variable(labels.cuda())
-        _,top1,top5=model(inputs,None,labels)
-        iter_top1+=top1
-        iter_top5+=top5
-print('top1:%.3f | top5:%.3f'%(iter_top1/test_len,iter_top5/test_len))
 
-#torch.save({'model':model.state_dict(),'optimizer':optimizer.state_dict(),'epoch':300},"models/"+str(batch)+"/model_final.pth")
+torch.save({'model':model.state_dict(),'optimizer':optimizer.state_dict(),'epoch':300},"models/"+str(batch)+"/model_final.pth")
                
