@@ -220,8 +220,8 @@ class BYOL(nn.Module):
         loss=loss_one+loss_two
         #self.update_target()
         if self.mode not in "pre-train":
-            #feature_view1.detach_()
-            #print(feature_view1.shape)
+            #backbone is False for requires_grad
+            feature_view1=feature_view1.detach()
             logit_view1=self.classifier(feature_view1)
             classifier_loss=self.cls_loss(logit_view1,labels)
             loss+=classifier_loss.mean()
