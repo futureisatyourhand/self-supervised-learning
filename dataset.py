@@ -39,7 +39,8 @@ class Data(Dataset):
         del imgs
         self.imgs=images
         self.trans=trans
-        self.tran=transforms.Compose([transforms.ToTensor(),])
+        self.tran=transforms.Compose([transforms.ToTensor(),
+                            transforms.Normalize(mean = (0.485, 0.456, 0.406),std = (0.229, 0.224, 0.225)),])
         self.train=train
 
     def __len__(self):
@@ -57,8 +58,8 @@ class Data(Dataset):
             return self.trans(image),label
 
 def BYOLAugmentationsView1(img):
-
-    t1 = transforms.Compose([transforms.RandomResizedCrop((112,112), scale=(
+    
+    t1 = transforms.Compose([transforms.RandomResizedCrop((32,32), scale=(
         0.08, 1.0), ratio=(0.75, 1.3333333333333333), interpolation=im_.BICUBIC),
         transforms.RandomHorizontalFlip(p=0.5)])
     img = t1(img)
@@ -73,21 +74,23 @@ def BYOLAugmentationsView1(img):
 
     img = img.filter(imf.GaussianBlur(
             radius=np.random.uniform(0.1, 2.0)))
-
-    if np.random.uniform() < 0.2:
-        t3 = transforms.Lambda(lambda x: imo.solarize(x,0.5))
-        img = t3(img)
+    #if np.random.uniform() < 0.2:
+    #    t3 = transforms.Lambda(lambda x: imo.solarize(x,0.5))
+    #    img = t3(img)
+    #    print(np.array(img))
 
     return img
 
 
 def BYOLAugmentationsView2(img):
 
-    t1 = transforms.Compose([transforms.RandomResizedCrop((112,112), scale=(
+    t1 = transforms.Compose([transforms.RandomResizedCrop((32,32), scale=(
         0.08, 1.0), ratio=(0.75, 1.3333333333333333), interpolation=im_.BICUBIC),
-        transforms.RandomHorizontalFlip(p=0.5)])
+        transforms.RandomHorizontalFlip(p=0.5),])
     img = t1(img)
-
+    
+    #print(np.array(img).shape)
+    #exit()
     if np.random.uniform() < 0.8:
         t2 = transforms.ColorJitter(
             brightness=0.4, contrast=0.4, saturation=0.2, hue=0.1)
@@ -99,9 +102,10 @@ def BYOLAugmentationsView2(img):
         img = img.filter(imf.GaussianBlur(
             radius=np.random.uniform(0.1, 2.0)))
 
-    if np.random.uniform() < 0.2:
-        t3 = transforms.Lambda(lambda x: imo.solarize(x,0.5))
-        img = t3(img)
+    #if np.random.uniform() < 0.2:
+    #    t3 = transforms.Lambda(lambda x: imo.solarize(x,0.5))
+    #    img = t3(img)
+     
 
     return img
 

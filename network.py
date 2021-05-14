@@ -89,13 +89,14 @@ class BYOL(nn.Module):
         model=models.vgg16(pretrained=False)
         print(model)
 
-        model.classifier=MLP(input_size=25088,hidden_size=projector_hidden_size,output_size=projector_output_size)
+        model.classifier=MLP(input_size=512,hidden_size=projector_hidden_size,output_size=projector_output_size)
+        model.avgpool=nn.Sequential()
         model.classifier=nn.Sequential()
         self.online_backbone=model#nn.Sequential(*list(model.modules())[:-1])
         #self.online_backbone.fc=nn.Sequential()
         #for param in self.online_backbone.parameters():
         #    param.requires_grad = False
-        self.online_projector=MLP(input_size=25088,hidden_size=projector_hidden_size,output_size=projector_output_size)
+        self.online_projector=MLP(input_size=512,hidden_size=projector_hidden_size,output_size=projector_output_size)
         self.online_predictor=MLP(input_size=projector_output_size,hidden_size=predictor_hidden_size,output_size=projector_output_size)
 
         self.target_backbone = None
@@ -103,7 +104,14 @@ class BYOL(nn.Module):
         self.mode=mode
         self.classifier=None
         if mode not in "pre-train":
-            self.classifier=nn.Linear(25088,num_classes,bias=True)
+            self.classifier=nn.Sequential(nn.Linear(512,4096),
+                                          nn.BatchNorm1d(4096),
+                                          nn.ReLU(inplace=True),
+                                          nn.Linear(4096,4096),
+                                          nn.BatchNorm1d(4096),
+                                          nn.ReLU(inplace=True),
+                                          nn.Linear(4096,num_classes)
+                                         )
             self.cls_loss=nn.CrossEntropyLoss()
 
         self.ema=EMA(moving_average_decay)

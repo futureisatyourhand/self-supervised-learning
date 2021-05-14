@@ -46,13 +46,13 @@ device = torch.device("cuda", local_rank)
 # +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 
 transform = transforms.Compose([
-                transforms.RandomResizedCrop((224,224), 
-                        scale=(0.08, 1.0), ratio=(0.75, 1.3333333333333333), 
-                        interpolation=im_.BICUBIC),
-                transforms.RandomHorizontalFlip(p=0.5),
+                #transforms.RandomResizedCrop((32,32), 
+                #        scale=(0.08, 1.0), ratio=(0.75, 1.3333333333333333), 
+                #        interpolation=im_.BICUBIC),
+                #transforms.RandomHorizontalFlip(p=0.5),
                 transforms.ToTensor(),
                 transforms.Normalize(mean = (0.485, 0.456, 0.406),std = (0.229, 0.224, 0.225)),
-                transforms.ColorJitter(brightness=0.4, contrast=0.4, saturation=0.2, hue=0.1),
+                #transforms.ColorJitter(brightness=0.4, contrast=0.4, saturation=0.2, hue=0.1),
                ])
 im_train_list=glob.glob("/home/liqian/data/cifar10/cifar-imgs/train/*/*.png")
 im_test_list=glob.glob("/home/liqian/data/cifar10/cifar-imgs/test/*/*.png")
