@@ -30,18 +30,16 @@ class EMA():
             return new 
         return old * self.beta + (1 - self.beta) * new 
 
-def weigth_init(model):
-    for m in model.modules():
-        print(m)
-        if isinstance(m, nn.Conv2d):
-            init.xavier_uniform_(m.weight.data)
-            init.constant_(m.bias.data,0.1)
-        elif isinstance(m, nn.BatchNorm2d):
-            m.weight.data.fill_(1)
-            m.bias.data.zero_()
-        elif isinstance(m, nn.Linear):
-            m.weight.data.normal_(0,0.01)
-            m.bias.data.zero_()
+def weigth_init(model,path):
+    from collections import OrderedDict
+    new_state_dict=OrderedDict()
+    state_dict=torch.load(path)["model"]
+    for k,v in state_dict.items():
+        if "target_" in k:
+            continue
+        new_state_dict[k]=v
+    model.load_state_dict(new_state_dict)
+
 
 def update_moving_average(ema_updater, ma_model1, current_model1):
     for current_params, ma_params in zip(current_model1.parameters(), ma_model1.parameters()):
@@ -199,9 +197,12 @@ class BYOL(nn.Module):
         projector_view1=self.online_projector(feature_view1)
         predictor_view1=self.online_predictor(projector_view1)
         if self.mode not in "pre-train" and image_two is None:
+            if self.mode is "test":
+                logits_view1=nn.Softmax(dim=1)(self.classifier(feature_view1))
+                return logits_view1.argmax(dim=1),None,None
             logits_view1=nn.Softmax(dim=1)(self.classifier(feature_view1))
             top1_acc,top5_acc=accuracy(logits_view1.data,labels, topk=(1, 5))
-            return None,top1_acc.data.mean(),top5_acc.data.mean() 
+            return None,top1_acc.data.mean(),top5_acc.data.mean()
         ## get view2
         feature_view2=self.online_backbone(image_two)
         projector_view2=self.online_projector(feature_view2)

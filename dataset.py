@@ -25,7 +25,7 @@ for idx, name in enumerate(label_name):
     label_dict[name] = idx
 
 class Data(Dataset):
-    def __init__(self,im_list,trans=None,train=True,epochs=300):
+    def __init__(self,im_list,trans=None,train=True,epochs=300,method="byol"):
         super(Dataset,self).__init__()
         imgs=[]
         for im_item in im_list:
@@ -39,6 +39,7 @@ class Data(Dataset):
         del imgs
         self.imgs=images
         self.trans=trans
+        self.method=method
         self.tran=transforms.Compose([transforms.ToTensor(),
                             transforms.Normalize(mean = (0.485, 0.456, 0.406),std = (0.229, 0.224, 0.225)),])
         self.train=train
@@ -51,6 +52,8 @@ class Data(Dataset):
         image=Image.open(image)
         
         if self.train:
+            if self.method=="vgg":
+                return self.tran(BYOLAugmentationsView1(image)),label
             view1=BYOLAugmentationsView1(image)
             view2=BYOLAugmentationsView2(image)
             return self.tran(view1),self.tran(view2),label

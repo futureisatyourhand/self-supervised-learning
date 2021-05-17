@@ -20,6 +20,7 @@ from torch.utils.data.distributed import DistributedSampler
 from torch.autograd import Variable
 from torch import optim
 import argparse
+from standard import VGG
 from dataset import Data,BYOLAugmentationsView1,BYOLAugmentationsView2
 from network import weigth_init
 ##argparser
@@ -46,37 +47,28 @@ device = torch.device("cuda", local_rank)
 # +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 
 transform = transforms.Compose([
-                #transforms.RandomResizedCrop((32,32), 
-                #        scale=(0.08, 1.0), ratio=(0.75, 1.3333333333333333), 
-                #        interpolation=im_.BICUBIC),
-                #transforms.RandomHorizontalFlip(p=0.5),
                 transforms.ToTensor(),
                 transforms.Normalize(mean = (0.485, 0.456, 0.406),std = (0.229, 0.224, 0.225)),
-                #transforms.ColorJitter(brightness=0.4, contrast=0.4, saturation=0.2, hue=0.1),
                ])
 im_train_list=glob.glob("/home/liqian/data/cifar10/cifar-imgs/train/*/*.png")
 im_test_list=glob.glob("/home/liqian/data/cifar10/cifar-imgs/test/*/*.png")
-trainset = Data(im_train_list,train = True,trans=transform,epochs=300)
+trainset = Data(im_train_list,train = True,trans=transform,epochs=600,method="byol")
 sampler=DistributedSampler(trainset,shuffle=True)
 trainloader = torch.utils.data.DataLoader(trainset,batch_size=batch,shuffle=False,num_workers=4, sampler=sampler)
 
-testset = Data(im_test_list,train=False,trans=transform,epochs=1)
+testset = Data(im_test_list,train=False,trans=transform,epochs=1,method="byol")
 testloader = torch.utils.data.DataLoader(testset,batch_size=batch,shuffle=True,num_workers=4)
 test_len=len(testloader)
 classes = ('airplane','automobile','bird','cat','deer','dog','frog','horse','ship','truck')
-
+method=1#1:BYOL,2:standard vgg for image classification
 
 ###########
-#init
-#torch.distributed.init_process_group(backend="nccl")
-##distribute process
-#local_rank = torch.distributed.get_rank()
-#torch.cuda.set_device(local_rank)
-#device = torch.device("cuda", local_rank)
-
-model=BYOL(mode="train+val")
-#weigth_init(model)
-############model.load_state_dict(torch.load(model)["model"])
+if method==1:
+    model=BYOL(mode="train+val")
+    #weigth_init(model,"models/64/model_classifier_final.pth")
+else:
+    model=VGG()
+#model.load_state_dict(torch.load("models/64/model_classifier_final.pth")["model"])
 model.to(device)
 
 ###optimizer
@@ -90,8 +82,7 @@ if torch.cuda.device_count() > 1:
                                                       device_ids=[local_rank],
                                                       output_device=local_rank)
 ####batch size:64 iter:780
-
-logs=open("logs/fine_log"+str(batch)+".txt",'a+')
+logs=open("logs/byol_log"+str(batch)+".txt",'a+')
 for epoch in range(1):
     #train
     iter_loss=0.0
@@ -99,14 +90,21 @@ for epoch in range(1):
     iter_top5=0.0
     sampler.set_epoch(epoch)    
     for i,data in enumerate(trainloader,0):
-        inputs1,inputs2,labels=data
-        inputs1,inputs2, labels = Variable(inputs1.cuda()),Variable(inputs2.cuda()), Variable(labels.cuda())
+        if method==1:
+            inputs1,inputs2,labels=data
+            inputs2=Variable(inputs2.cuda())
+            inputs1,labels = Variable(inputs1.cuda()),Variable(labels.cuda())
+        else:
+            inputs1,labels=data
+            inputs1,labels = Variable(inputs1.cuda()),Variable(labels.cuda())
+            inputs2=None
         optimizer.zero_grad()
         loss,top1,top5=model(inputs1,inputs2,labels)
         loss.backward()
         #cls_loss.backward()
         optimizer.step()
-        model.update_target()
+        if method==1:
+            model.update_target()
         iter_loss+=loss.item()
         iter_top1+=top1.item()
         iter_top5+=top5.item()
