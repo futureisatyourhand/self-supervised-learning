@@ -9,7 +9,7 @@ import torch
 from functools import wraps
 from torch import nn
 import numpy as np
-from utils import MLP,ResNet50
+from utils import MLP,ResNet50,accuracy
 import copy
 from torch.nn import init
 from torchvision import models
@@ -24,20 +24,6 @@ def weigth_init(model,path):
         new_state_dict[k]=v
     model.load_state_dict(new_state_dict)
 
-def accuracy(output, target, topk=(1,)):
-    """Computes the precision@k for the specified values of k"""
-    maxk = max(topk)
-    batch_size = target.size(0)
- 
-    _, pred = output.topk(maxk, 1, True, True)  # 返回最大的k个结果（按最大到小排）
-    pred = pred.t()  # 转置
-    correct = pred.eq(target.view(1, -1).expand_as(pred))
- 
-    res = []
-    for k in topk:
-        correct_k = correct[:k].contiguous().view(-1).float().sum(0, keepdim=True)
-        res.append(correct_k.mul_(100.0 / batch_size))
-    return res
 
 class VGG(nn.Module):
     def __init__(self,num_classes=10,

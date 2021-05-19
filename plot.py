@@ -1,3 +1,10 @@
+# -*- coding: utf-8 -*-
+# --------------------------------------
+# @Time    : 2021/5/12$ 12:12$
+# @Author  : Qian Li
+# @Email   : 1844857573@qq.com
+# @File    : plot.py
+# Description :plot trainingfor self-supervised learning or standard training,such as CIFAR10,CIFAR100,STL and etc.
 import numpy as np
 from matplotlib import pyplot as plt
 from scipy.interpolate import make_interp_spline

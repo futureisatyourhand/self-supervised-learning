@@ -4,7 +4,7 @@
 # @Author  : Qian Li
 # @Email   : 1844857573@qq.com
 # @File    : train.py
-# Description :train and eval for self-supervised learning,such as CIFAR10,CIFAR100,STL and etc.
+# Description :train and eval for self-supervised learning or standard training,such as CIFAR10,CIFAR100,STL and etc.
 import random
 import glob
 from network import BYOL
@@ -21,13 +21,22 @@ from torch.autograd import Variable
 from torch import optim
 import argparse
 from standard import VGG
+from mlp import VGGMlp
 from dataset import Data,BYOLAugmentationsView1,BYOLAugmentationsView2
 from network import weigth_init
 ##argparser
 parser = argparse.ArgumentParser(description='my byol')
-parser.add_argument('--batch', type=int, required = True,default=32,
+parser.add_argument('--batch', type=int, required = False,default=64,
                        help='batch size for self-supervised learning')
-#args = parser.parse_args()
+parser.add_argument('--method',type=int,required=False,default=1,help='byol:1,standard:2,stand mlp:3')
+parser.add_argument('--epochs',type=int,default=600,help='epochs for training')
+parser.add_argument('--checkpoint',type=str,default="",help='model for training or eval')
+
+parser.add_argument('--lr',type=float,default=0.03,help='initial learning rate')
+parser.add_argument('--local_rank',type=int,default=0,help='local rank for distribution')
+#parser.add_argument('--')
+
+args = parser.parse_args()
 #####seed###
 random.seed(120)
 np.random.seed(122) # for yolov5-mosaic
@@ -52,27 +61,38 @@ transform = transforms.Compose([
                ])
 im_train_list=glob.glob("/home/liqian/data/cifar10/cifar-imgs/train/*/*.png")
 im_test_list=glob.glob("/home/liqian/data/cifar10/cifar-imgs/test/*/*.png")
-trainset = Data(im_train_list,train = True,trans=transform,epochs=600,method="byol")
+
+##++++++++++++method:byol for byol++++++method:other(stand vgg or mlp vgg)++++
+if args.method==1:
+    trainset = Data(im_train_list,train = True,trans=transform,epochs=args.epochs,method="byol")
+    testset = Data(im_test_list,train=False,trans=transform,epochs=1,method="byol")
+else:
+    trainset = Data(im_train_list,train = True,trans=transform,epochs=args.epochs,method="vgg")
+    testset = Data(im_test_list,train=False,trans=transform,epochs=1,method="vgg")
 sampler=DistributedSampler(trainset,shuffle=True)
 trainloader = torch.utils.data.DataLoader(trainset,batch_size=batch,shuffle=False,num_workers=4, sampler=sampler)
 
-testset = Data(im_test_list,train=False,trans=transform,epochs=1,method="byol")
+#testset = Data(im_test_list,train=False,trans=transform,epochs=1,method="vgg")
 testloader = torch.utils.data.DataLoader(testset,batch_size=batch,shuffle=True,num_workers=4)
 test_len=len(testloader)
 classes = ('airplane','automobile','bird','cat','deer','dog','frog','horse','ship','truck')
-method=1#1:BYOL,2:standard vgg for image classification
+
+#++++++++++++++1:byol+++++++2:stand vgg+++++3:mlp vgg+++++++++
+method=3#1:BYOL,2:standard vgg,3:mlp-vgg for image classification
 
 ###########
-if method==1:
-    model=BYOL(mode="train+val")
+if args.method==1:
+    model=BYOL(mode="train+val",mlp=True)#mlp:whether to use mlp
     #weigth_init(model,"models/64/model_classifier_final.pth")
-else:
+elif args.method==2:
     model=VGG()
+elif args.method==3:
+    model=VGGMlp()
 #model.load_state_dict(torch.load("models/64/model_classifier_final.pth")["model"])
 model.to(device)
 
 ###optimizer
-optimizer=optim.SGD(model.parameters(),lr = 0.03,momentum=0.9,weight_decay=0.0001)
+optimizer=optim.SGD(model.parameters(),lr =args.lr,momentum=0.9,weight_decay=0.0001)
 
 #model=torch.nn.parallel.DistributedDataParallel(model)
 if torch.cuda.device_count() > 1:
@@ -82,7 +102,7 @@ if torch.cuda.device_count() > 1:
                                                       device_ids=[local_rank],
                                                       output_device=local_rank)
 ####batch size:64 iter:780
-logs=open("logs/byol_log"+str(batch)+".txt",'a+')
+logs=open("logs/byol_mlp_log"+str(args.batch)+".txt",'a+')
 for epoch in range(1):
     #train
     iter_loss=0.0
@@ -90,7 +110,7 @@ for epoch in range(1):
     iter_top5=0.0
     sampler.set_epoch(epoch)    
     for i,data in enumerate(trainloader,0):
-        if method==1:
+        if args.method==1:
             inputs1,inputs2,labels=data
             inputs2=Variable(inputs2.cuda())
             inputs1,labels = Variable(inputs1.cuda()),Variable(labels.cuda())
@@ -103,7 +123,7 @@ for epoch in range(1):
         loss.backward()
         #cls_loss.backward()
         optimizer.step()
-        if method==1:
+        if args.method==1:###byol
             model.update_target()
         iter_loss+=loss.item()
         iter_top1+=top1.item()

@@ -6,6 +6,8 @@
 # @File    : utils.py
 # Description :predictor(i.e., MLP) and ResNet network for self-supervised learning
 from torch import nn
+import math
+import torch.nn.functional as F
 class MLP(nn.Module):
   """One hidden layer perceptron, with normalization."""
 
@@ -27,7 +29,20 @@ class MLP(nn.Module):
   def forward(self, inputs):
     return self.mlp(inputs)
 
-
+def accuracy(output, target, topk=(1,)):
+    """Computes the precision@k for the specified values of k"""
+    maxk = max(topk)
+    batch_size = target.size(0)
+ 
+    _, pred = output.topk(maxk, 1, True, True)  # 返回最大的k个结果（按最大到小排）
+    pred = pred.t()  # 转置
+    correct = pred.eq(target.view(1, -1).expand_as(pred))
+ 
+    res = []
+    for k in topk:
+        correct_k = correct[:k].contiguous().view(-1).float().sum(0, keepdim=True)
+        res.append(correct_k.mul_(100.0 / batch_size))
+    return res
 import torch
 import torch.nn as nn
 import torchvision
@@ -45,6 +60,59 @@ def Conv1(in_planes, places, stride=2):
         nn.ReLU(inplace=True),
         nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
     )
+class External_attention(nn.Module):
+    '''
+    Arguments:
+        c (int): The input and output channel number.
+    '''
+    def __init__(self, c):
+        super(External_attention, self).__init__()
+        
+        self.conv1 = nn.Conv2d(c, c, 1)
+
+        self.k = 64
+        self.linear_0 = nn.Conv1d(c, self.k, 1, bias=False)
+
+        self.linear_1 = nn.Conv1d(self.k, c, 1, bias=False)
+        self.linear_1.weight.data = self.linear_0.weight.data.permute(1, 0, 2)        
+        
+        self.conv2 = nn.Sequential(
+            nn.Conv2d(c, c, 1, bias=False),
+            nn.BatchNorm2d(c))        
+        
+        for m in self.modules():
+            if isinstance(m, nn.Conv2d):
+                n = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
+                m.weight.data.normal_(0, math.sqrt(2. / n))
+            elif isinstance(m, nn.Conv1d):
+                n = m.kernel_size[0] * m.out_channels
+                m.weight.data.normal_(0, math.sqrt(2. / n))
+            elif isinstance(m,nn.BatchNorm2d):
+                m.weight.data.fill_(1)
+                if m.bias is not None:
+                    m.bias.data.zero_()
+ 
+
+    def forward(self, x):
+        idn = x
+        x = self.conv1(x)
+
+        b, c, h, w = x.size()
+        n = h*w
+        x = x.view(b, c, h*w)   # b * c * n 
+
+        attn = self.linear_0(x) # b, k, n
+        attn = F.softmax(attn, dim=-1) # b, k, n
+
+        attn = attn / (1e-9 + attn.sum(dim=1, keepdim=True)) #  # b, k, n
+        x = self.linear_1(attn) # b, c, n
+
+        x = x.view(b, c, h, w)
+        x = self.conv2(x)
+        x = x + idn
+        x = F.relu(x)
+        return x
+
 
 class Bottleneck(nn.Module):
     def __init__(self,in_places,places, stride=1,downsampling=False, expansion = 4):

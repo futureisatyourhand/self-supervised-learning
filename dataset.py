@@ -4,7 +4,7 @@
 # @Author  : Qian Li
 # @Email   : 1844857573@qq.com
 # @File    : dataset.py
-# Description :dataset and multi-views augmentations for self-supervised learning
+# Description :dataset and multi-views augmentations for self-supervised learning and standard training
 from PIL import Image as im_
 from PIL import ImageOps as imo
 from PIL import ImageEnhance as ime

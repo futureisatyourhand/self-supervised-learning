@@ -5,11 +5,12 @@
 # @Email   : 1844857573@qq.com
 # @File    : network.py
 # Description : details(i.e., online network,online projector network, online predictor,classifier, target network, target projector,) for self-supervised learning
+#byol
 import torch
 from functools import wraps
 from torch import nn
 import numpy as np
-from utils import MLP,ResNet50
+from utils import MLP,ResNet50,accuracy,External_attention
 import copy
 from torch.nn import init
 from torchvision import models
@@ -59,20 +60,6 @@ def singleton(cache_key):
         return wrapper
     return inner_fn
 
-def accuracy(output, target, topk=(1,)):
-    """Computes the precision@k for the specified values of k"""
-    maxk = max(topk)
-    batch_size = target.size(0)
- 
-    _, pred = output.topk(maxk, 1, True, True)  # 返回最大的k个结果（按最大到小排）
-    pred = pred.t()  # 转置
-    correct = pred.eq(target.view(1, -1).expand_as(pred))
- 
-    res = []
-    for k in topk:
-        correct_k = correct[:k].contiguous().view(-1).float().sum(0, keepdim=True)
-        res.append(correct_k.mul_(100.0 / batch_size))
-    return res
 
 class BYOL(nn.Module):
     def __init__(self,num_classes=10,
@@ -80,35 +67,36 @@ class BYOL(nn.Module):
                         projector_output_size=256,
                         predictor_hidden_size=4096,
                         moving_average_decay=.9999,
-                        eps=1e-5,use_momentum = True,mode="pre-train"):
-        ##model:pre-train,fine-tune,test
+                        eps=1e-5,use_momentum = True,mode="pre-train",mlp=False):
+        """model:pre-train,fine-tune,test
+           mlp: whether to use mlp
+           mode: whether to test
+           use_momentum: whether to use momentum
+           num_classes: for image classification
+        """
         super(BYOL,self).__init__()       
+        mdl=models.vgg16(pretrained=False).features
+        self.online_backbone=nn.Sequential(*list(mdl.modules())[1:10],*list(mdl.modules())[11:31])
+        
 
-        model=models.vgg16(pretrained=False)
-        print(model)
-
-        model.classifier=MLP(input_size=512,hidden_size=projector_hidden_size,output_size=projector_output_size)
-        model.avgpool=nn.Sequential()
-        model.classifier=nn.Sequential()
-        self.online_backbone=model#nn.Sequential(*list(model.modules())[:-1])
-        #self.online_backbone.fc=nn.Sequential()
-        #for param in self.online_backbone.parameters():
-        #    param.requires_grad = False
-        self.online_projector=MLP(input_size=512,hidden_size=projector_hidden_size,output_size=projector_output_size)
+        #nn.Sequential(*list(model.modules())[:-1])
+        self.online_projector=MLP(input_size=8192,hidden_size=projector_hidden_size,output_size=projector_output_size)
         self.online_predictor=MLP(input_size=projector_output_size,hidden_size=predictor_hidden_size,output_size=projector_output_size)
-
+        if mlp:
+           self.linu = External_attention(512)
+        self.mlp=mlp 
         self.target_backbone = None
         self.target_projector=None
         self.mode=mode
         self.classifier=None
-        if mode not in "pre-train":
-            self.classifier=nn.Sequential(nn.Linear(512,4096),
-                                          nn.BatchNorm1d(4096),
+        if mode is not "pre-train":
+            self.classifier=nn.Sequential(nn.Linear(8192,2048),
+                                          nn.BatchNorm1d(2048),
                                           nn.ReLU(inplace=True),
-                                          nn.Linear(4096,4096),
-                                          nn.BatchNorm1d(4096),
+                                          nn.Linear(2048,512),
+                                          nn.BatchNorm1d(512),
                                           nn.ReLU(inplace=True),
-                                          nn.Linear(4096,num_classes)
+                                          nn.Linear(512,num_classes)
                                          )
             self.cls_loss=nn.CrossEntropyLoss()
 
@@ -193,19 +181,21 @@ class BYOL(nn.Module):
         #if not image_two: 
             
         ##get view1
+        #mlp is post projector and predictor
         feature_view1=self.online_backbone(image_one)
-        projector_view1=self.online_projector(feature_view1)
+        projector_view1=self.online_projector(feature_view1.view(image_one.shape[0],-1))
         predictor_view1=self.online_predictor(projector_view1)
         if self.mode not in "pre-train" and image_two is None:
+            feature_view1=self.linu(feature_view1)
             if self.mode is "test":
-                logits_view1=nn.Softmax(dim=1)(self.classifier(feature_view1))
+                logits_view1=nn.Softmax(dim=1)(self.classifier(feature_view1.view(image_one.shape[0],-1)))
                 return logits_view1.argmax(dim=1),None,None
-            logits_view1=nn.Softmax(dim=1)(self.classifier(feature_view1))
+            logits_view1=nn.Softmax(dim=1)(self.classifier(feature_view1.view(image_one.shape[0],-1)))
             top1_acc,top5_acc=accuracy(logits_view1.data,labels, topk=(1, 5))
             return None,top1_acc.data.mean(),top5_acc.data.mean()
         ## get view2
         feature_view2=self.online_backbone(image_two)
-        projector_view2=self.online_projector(feature_view2)
+        projector_view2=self.online_projector(feature_view2.view(image_two.shape[0],-1))
         #feature_view2=feature_view2.view(image_two.size(0),-1)
         predictor_view2=self.online_predictor(projector_view2)
 
@@ -217,9 +207,9 @@ class BYOL(nn.Module):
                 target_backbone=self.online_backbone
                 target_projector=self.online_projector
 
-            target_f1=target_backbone(image_one)
+            target_f1=target_backbone(image_one).view(image_one.shape[0],-1)
             target_f1=target_projector(target_f1)
-            target_f2=target_backbone(image_two)
+            target_f2=target_backbone(image_two).view(image_two.shape[0],-1)
             target_f2=target_projector(target_f2)
             target_f1.detach_()
             target_f2.detach_()
@@ -231,15 +221,12 @@ class BYOL(nn.Module):
         if self.mode not in "pre-train":
             #backbone is False for requires_grad
             feature_view1=feature_view1.detach()
-            logit_view1=self.classifier(feature_view1)
+            feature_view1=self.linu(feature_view1)
+            logit_view1=self.classifier(feature_view1.view(image_one.shape[0],-1))
             classifier_loss=self.cls_loss(logit_view1,labels)
             loss+=classifier_loss.mean()
             logit_view1=nn.Softmax(dim=1)(logit_view1)#.cpu().detach().numpy().argsort(axis=1)[:,::-1]
             top1_acc,top5_acc=accuracy(logit_view1.data,labels, topk=(1, 5))
-            #print(logit_view1)
-            #labels=labels.data.cpu().detach().numpy()
-            #top1_acc=np.array(logit_view1[:,:1]==np.tile(labels[:,np.newaxis],[1,1]),dtype=np.int).mean()
-            #top5_acc=np.array(logit_view1[:,:5]==np.tile(labels[:,np.newaxis],[1,5]),dtype=np.int).mean()
             return loss,top1_acc.data.mean(),top5_acc.data.mean()
         else:
             #loss=loss_one+loss_two

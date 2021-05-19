@@ -4,7 +4,7 @@
 # @Author  : Qian Li
 # @Email   : 1844857573@qq.com
 # @File    : eval.py
-# Description :eval model forself-supervised learning,such as CIFAR10,CIFAR100,STL and etc.
+# Description :eval model forself-supervised learning and standard training,such as CIFAR10,CIFAR100,STL and etc.
 import random
 import glob
 from network import BYOL
