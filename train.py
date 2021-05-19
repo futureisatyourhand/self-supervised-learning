@@ -23,18 +23,19 @@ import argparse
 from standard import VGG
 from mlp import VGGMlp
 from dataset import Data,BYOLAugmentationsView1,BYOLAugmentationsView2
-from network import weigth_init
+from network import weight_init
 ##argparser
 parser = argparse.ArgumentParser(description='my byol')
 parser.add_argument('--batch', type=int, required = False,default=64,
                        help='batch size for self-supervised learning')
 parser.add_argument('--method',type=int,required=False,default=1,help='byol:1,standard:2,stand mlp:3')
 parser.add_argument('--epochs',type=int,default=600,help='epochs for training')
-parser.add_argument('--checkpoint',type=str,default="",help='model for training or eval')
+parser.add_argument('--checkpoint',type=str,default=None,help='model for training or eval')
 
 parser.add_argument('--lr',type=float,default=0.03,help='initial learning rate')
 parser.add_argument('--local_rank',type=int,default=0,help='local rank for distribution')
-#parser.add_argument('--')
+parser.add_argument('--mlp',type=bool,default=False,help='mlp for byol self-supervised learning')
+
 
 args = parser.parse_args()
 #####seed###
@@ -72,7 +73,6 @@ else:
 sampler=DistributedSampler(trainset,shuffle=True)
 trainloader = torch.utils.data.DataLoader(trainset,batch_size=batch,shuffle=False,num_workers=4, sampler=sampler)
 
-#testset = Data(im_test_list,train=False,trans=transform,epochs=1,method="vgg")
 testloader = torch.utils.data.DataLoader(testset,batch_size=batch,shuffle=True,num_workers=4)
 test_len=len(testloader)
 classes = ('airplane','automobile','bird','cat','deer','dog','frog','horse','ship','truck')
@@ -82,13 +82,13 @@ method=3#1:BYOL,2:standard vgg,3:mlp-vgg for image classification
 
 ###########
 if args.method==1:
-    model=BYOL(mode="train+val",mlp=True)#mlp:whether to use mlp
-    #weigth_init(model,"models/64/model_classifier_final.pth")
+    model=BYOL(mode="train+val",mlp=args.mlp)#mlp:whether to use mlp
 elif args.method==2:
     model=VGG()
 elif args.method==3:
     model=VGGMlp()
-#model.load_state_dict(torch.load("models/64/model_classifier_final.pth")["model"])
+if args.checkpoint is not None:
+    weight_init(model,args.checkpoint) 
 model.to(device)
 
 ###optimizer

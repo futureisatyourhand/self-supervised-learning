@@ -31,7 +31,7 @@ class EMA():
             return new 
         return old * self.beta + (1 - self.beta) * new 
 
-def weigth_init(model,path):
+def weight_init(model,path):
     from collections import OrderedDict
     new_state_dict=OrderedDict()
     state_dict=torch.load(path)["model"]
