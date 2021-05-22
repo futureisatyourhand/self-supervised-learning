@@ -186,7 +186,9 @@ class BYOL(nn.Module):
         projector_view1=self.online_projector(feature_view1.view(image_one.shape[0],-1))
         predictor_view1=self.online_predictor(projector_view1)
         if self.mode not in "pre-train" and image_two is None:
-            feature_view1=self.linu(feature_view1)
+            if self.mlp:
+                feature_view1=self.linu(feature_view1)
+                
             if self.mode is "test":
                 logits_view1=nn.Softmax(dim=1)(self.classifier(feature_view1.view(image_one.shape[0],-1)))
                 return logits_view1.argmax(dim=1),None,None
@@ -221,7 +223,8 @@ class BYOL(nn.Module):
         if self.mode not in "pre-train":
             #backbone is False for requires_grad
             feature_view1=feature_view1.detach()
-            feature_view1=self.linu(feature_view1)
+            if self.mlp:
+                feature_view1=self.linu(feature_view1)
             logit_view1=self.classifier(feature_view1.view(image_one.shape[0],-1))
             classifier_loss=self.cls_loss(logit_view1,labels)
             loss+=classifier_loss.mean()

@@ -102,7 +102,7 @@ if torch.cuda.device_count() > 1:
                                                       device_ids=[local_rank],
                                                       output_device=local_rank)
 ####batch size:64 iter:780
-logs=open("logs/byol_mlp_log"+str(args.batch)+".txt",'a+')
+logs=open("logs/byol_log"+str(args.batch)+".txt",'a+')
 for epoch in range(1):
     #train
     iter_loss=0.0
